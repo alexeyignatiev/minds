@@ -77,8 +77,7 @@ class Options(object):
         try:
             opts, args = getopt.getopt(command[1:],
                                     'a:c:de:f:hm:nor:s:t:v',
-                                    ['accy=',
-                                        'approach=',
+                                    ['approach=',
                                         'approx=',
                                         'bsymm',
                                         'class=',
@@ -176,8 +175,6 @@ class Options(object):
 
         print('Usage: ' + os.path.basename(self.command[0]) + ' [options] training-data')
         print('Options:')
-        print('        --accy=<float>             Target at least this accuracy')
-        print('                                   Available values: [0.0 .. 100.0] (default = 100.0)')
         print('        -a, --approach=<string>    Approach to use')
         print('                                   Available values: mxsat, mp92, sat, (default = sat)')
         print('        --approx=<int>             Approximate set cover with at most k attempts')
