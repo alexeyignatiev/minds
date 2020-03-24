@@ -73,7 +73,7 @@ class ConsistencyChecker(object):
         # hard clauses (pairwise overlapping samples)
         for c1, c2 in itertools.combinations(self.clust.keys(), 2):
             for i in self.clust[c1]:
-                samp = set([-l for l in self.dbin.samps[i][:-1]])
+                samp = set([-l for l in self.dbin.samps[i]])
 
                 for j in self.clust[c2]:
                     if not samp.intersection(set(self.dbin.samps[j])):
