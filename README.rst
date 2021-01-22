@@ -202,8 +202,8 @@ also outlined below:
            print('rule:', rule)
 
 Note that all the algorithms make use of the ``Data`` class for representing
-the data internally. An object of class dat can be created for a given CSV
-file, or alternatively for a *pandas'* DataFrame object:
+the data internally. An object of class ``Data`` can be created for a given
+CSV file, or alternatively for a *pandas'* DataFrame object:
 
 .. code:: python
 
