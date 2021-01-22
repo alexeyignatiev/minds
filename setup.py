@@ -50,6 +50,6 @@ setup(name='minds-kit',
     ext_modules=[],
     scripts=['tool/mds.py'],
     cmdclass={},
-    install_requires=[],
+    install_requires=['pandas', 'python-sat'],
     extras_require = {}
 )
