@@ -4,8 +4,8 @@
 ## check.py
 ##
 ##  Created on: Dec 3, 2017
-##      Author: Alexey S. Ignatiev
-##      E-mail: aignatiev@ciencias.ulisboa.pt
+##      Author: Alexey Ignatiev
+##      E-mail: alexey.ignatiev@monash.edu
 ##
 
 #
@@ -51,14 +51,14 @@ class ConsistencyChecker(object):
                     j = self.data.nm2id[name]
 
                     if len(self.data.feats[j]) > 2:
-                        samp_bin += [-self.data.fvmap.dir[(name, l)] for l in list(self.data.feats[j].difference(set([lit])))]
+                        samp_bin += [-self.data.fvmap.dir[(name, l)] for l in sorted(self.data.feats[j].difference(set([lit])))]
 
             self.dbin.samps[i] = samp_bin
 
         # clusterizing samples
         self.clust = {self.data.fvmap.dir[(self.data.names[-1], v)]: [] for v in self.data.feats[-1]}
         for i, s in enumerate(self.data.samps):
-                self.clust[s[-1]].append(i)
+            self.clust[s[-1]].append(i)
 
         # creating a formula
         self.formula = WCNF()
@@ -92,7 +92,7 @@ class ConsistencyChecker(object):
             MXS = RC2
 
         # here we use MSE18 configuration 'b'
-        with MXS(self.formula, solver=self.options.solver, adapt=True,
+        with MXS(self.formula, solver='g3' if self.options.solver in ('cd', 'cdl', 'cadical') else self.options.solver, adapt=True,
                 exhaust=True, incr=False, minz=True, trim=0, verbose=0) as rc2:
             rc2.compute()
 

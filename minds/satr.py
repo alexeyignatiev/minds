@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 #-*- coding:utf-8 -*-
 ##
-## sat.py
+## satr.py
 ##
 ##  Created on: Jan 9, 2018
-##      Author: Alexey S. Ignatiev
-##      E-mail: aignatiev@ciencias.ulisboa.pt
+##      Author: Alexey Ignatiev
+##      E-mail: alexey.ignatiev@monash.edu
 ##
 
 #
@@ -13,6 +13,7 @@
 from __future__ import print_function
 import collections
 import itertools
+from minds.rule import Rule
 import os
 from pysat.card import *
 from pysat.examples.lbx import LBX
@@ -28,20 +29,7 @@ import sys
 
 #
 #==============================================================================
-class SATMinMode(object):
-    """
-        Mode of operation (approach).
-    """
-
-    rules    = 0
-    literals = 1
-    multiobj = 2
-    blo      = 3
-
-
-#
-#==============================================================================
-class SAT(object):
+class SATRules(object):
     """
         Class implementing the new SAT-based approach.
     """
@@ -61,10 +49,10 @@ class SAT(object):
         self.reset_idpool()
 
         # samples divided into classes
-        self.samps = {self.data.fvmap.dir[(self.data.names[-1], v)]: [] for v in self.data.feats[-1]}
+        self.samps = {self.data.fvmap.dir[(self.data.names[-1], v)]: [] for v in sorted(self.data.feats[-1])}
 
         # covers by class
-        self.covrs = {self.data.fvmap.dir[(self.data.names[-1], v)]: [] for v in self.data.feats[-1]}
+        self.covrs = {self.data.fvmap.dir[(self.data.names[-1], v)]: [] for v in sorted(self.data.feats[-1])}
 
         for i, s in enumerate(self.data.samps):
                 self.samps[s[-1]].append(i)
@@ -90,7 +78,7 @@ class SAT(object):
         for r, (name, feats) in enumerate(zip(self.data.names[:-1], self.data.feats[:-1])):
             fgroup = []
             if len(feats) != 2:
-                vars_ = [self.data.fvmap.dir[name, v] for v in feats]
+                vars_ = sorted([self.data.fvmap.dir[name, v] for v in feats])
                 for i, var in enumerate(vars_):
                     vfmap[var] = [-v for v in vars_]
                     vfmap[var][i] = var
@@ -100,7 +88,7 @@ class SAT(object):
 
                 curr_id += len(feats)
             else:
-                var = self.data.fvmap.dir[name, list(feats)[0]]
+                var = self.data.fvmap.dir[name, sorted(feats)[0]]
                 vfmap[var] = [var]
                 vfmap[-var] = [-var]
                 self.ffmap.opp[curr_id] = var
@@ -153,24 +141,9 @@ class SAT(object):
             Reset the pool of variable ids.
         """
 
-        self.idpool = itertools.count(start=1)
-        self.vars = collections.defaultdict(lambda: next(self.idpool))
+        self.idpool = IDPool(start_from=1)
 
     def compute(self):
-        """
-            Choose a method to compute a decision set.
-        """
-
-        if self.options.mode == SATMinMode.rules:
-            return self.compute_minrules()
-        elif self.options.mode == SATMinMode.literals:
-            return self.compute_minlits()
-        elif self.options.mode == SATMinMode.multiobj:
-            return self.compute_multiobj()
-        else:
-            assert 0, 'Non-existing minimization mode chosen'
-
-    def compute_minrules(self):
         """
             Compute a decision set by minimizing the number of rules.
         """
@@ -184,10 +157,10 @@ class SAT(object):
         # depending on this option, we compute either one class or all of them
         if self.options.to_compute == 'best':
             computed = len(self.data.feats[-1])
-            self.labels = list(self.samps.keys())
+            self.labels = sorted(self.samps.keys())
         elif self.options.to_compute == 'all':
             computed = 0
-            self.labels = list(self.samps.keys())
+            self.labels = sorted(self.samps.keys())
         else:
             to_compute = self.options.to_compute.split(',')
             computed = len(self.data.feats[-1]) - len(to_compute)
@@ -233,79 +206,12 @@ class SAT(object):
             else:
                 nof_terms += 1
 
-    def compute_minlits(self):
-        """
-            Compute a decision set by minimizing the number of literals.
-        """
-
-        assert 0, 'Not yet implemented'
-
-    def compute_multiobj(self):
-        """
-            Compute a decision set by minimizing the number of rules
-            and literals. Do some kind of multi-criteria optimization.
-        """
-
-        assert 0, 'Not yet implemented'
-
-        self.cost = 0
-
-        # iterative over the number of terms
-        nof_terms = 1
-        self.time = 0.0
-
-        # depending on this option, we compute either one class or all of them
-        if self.options.to_compute == 'all':
-            computed = 0
-            self.labels = list(self.samps.keys())
-        else:
-            to_compute = self.options.to_compute.split(',')
-            computed = len(self.data.feats[-1]) - len(to_compute)
-            self.labels = [self.data.fvmap.dir[self.data.names[-1], c] for c in to_compute]
-
-        for label in self.labels:
-            nof_terms = 1
-
-            while True:
-                # resetting the pool of ids
-                self.reset_idpool()
-
-                # the main part is encoding
-                enc = self.encode(label, nof_terms=nof_terms)
-
-                if self.options.verb:
-                    print('c1 # of terms: {0}; enc: {1}v, {2}c; (class = {3})'.format(nof_terms,
-                        enc.nv, len(enc.clauses), self.data.fvmap.opp[label][1]))
-
-                if self.options.pdump:
-                    fname = 'formula.{0}@{1}.cnf'.format(os.getpid(), socket.gethostname())
-                    enc.to_file(fname)
-
-                with Solver(name=self.options.solver, bootstrap_with=enc.clauses) as s:
-                    if s.solve():
-                        model = s.get_model()
-
-                        if self.options.opt:
-                            model = self.optimize(enc)
-
-                        self.extract_cover(label, model)
-                        break
-                    else:
-                        nof_terms *= 2
-
-        self.stime = resource.getrusage(resource.RUSAGE_SELF).ru_utime - self.init_stime
-        self.ctime = resource.getrusage(resource.RUSAGE_CHILDREN).ru_utime - self.init_ctime
-        self.time = self.stime + self.ctime
-
-        return self.covrs
-
     def encode(self, label, nof_terms=1):
         """
             Encode the problem of computing a DS of size nof_terms.
         """
 
         self.nof_terms = nof_terms
-        self.nof_samps = len(self.samps)
 
         enc = CNF()
 
@@ -336,7 +242,7 @@ class SAT(object):
         else:  # distinguish the classes under question only
             other_labels = set(self.labels)
         other_labels.remove(label)
-        other_labels = list(other_labels)
+        other_labels = sorted(other_labels)
         for j in range(1, self.nof_terms + 1):
             for lb in other_labels:
                 for q in self.samps[lb]:
@@ -381,8 +287,21 @@ class SAT(object):
             self.add_bsymm(enc)
 
         # constraint 10
-        for q in self.samps[label]:
-            enc.append([self.crvar(j, q + 1) for j in range(1, self.nof_terms + 1)])
+        if self.options.accuracy == 100.0:
+            for q in self.samps[label]:
+                enc.append([self.crvar(j, q + 1) for j in range(1, self.nof_terms + 1)])
+        else:
+            for q in self.samps[label]:
+                cv = self.cvvar(q + 1)
+                enc.append([-cv] + [self.crvar(j, q + 1) for j in range(1, self.nof_terms + 1)])
+
+                for j in range(1, self.nof_terms + 1):
+                    enc.append([-self.crvar(j, q + 1), cv])
+
+            cnum = int(self.options.accuracy * len(self.samps[label]) / 100.0)
+            al = CardEnc.atleast([self.cvvar(q + 1) for q in self.samps[label]], bound=cnum, top_id=enc.nv, encoding=self.options.enc)
+            if al:
+                enc.extend(al.clauses)
 
         # at most one value can be chosen for a feature
         for feats in six.itervalues(self.ffmap.dir):
@@ -492,77 +411,77 @@ class SAT(object):
             True iff literal on feature r is to be skipped for rule j.
         """
 
-        return self.vars['s_{0}_{1}'.format(j, r)]
+        return self.idpool.id('s_{0}_{1}'.format(j, r))
 
     def lvar(self, j, r):
         """
             Literal on feature r for rule j (if the feature is not skipped).
         """
 
-        return self.vars['l_{0}_{1}'.format(j, r)]
+        return self.idpool.id('l_{0}_{1}'.format(j, r))
 
     def dvar0(self, j, r):
         """
             True iff rule j discriminates feature r on value 0.
         """
 
-        return self.vars['d0_{0}_{1}'.format(j, r)]
+        return self.idpool.id('d0_{0}_{1}'.format(j, r))
 
     def dvar1(self, j, r):
         """
             True iff rule j discriminates feature r on value 1.
         """
 
-        return self.vars['d1_{0}_{1}'.format(j, r)]
+        return self.idpool.id('d1_{0}_{1}'.format(j, r))
 
     def crvar(self, j, q):
         """
             True iff (used) rule j covers sample q.
         """
 
-        return self.vars['cr_{0}_{1}'.format(j, q)]
+        return self.idpool.id('cr_{0}_{1}'.format(j, q))
 
     def cvvar(self, q):
         """
             True iff sample q is covered.
         """
 
-        return self.vars['cv_{0}'.format(q)]
+        return self.idpool.id('cv_{0}'.format(q))
 
     def eqvar(self, j, r):
         """
             Equality variables for symmetry breaking.
         """
 
-        return self.vars['eq_{0}_{1}'.format(j, r)]
+        return self.idpool.id('eq_{0}_{1}'.format(j, r))
 
     def gtvar(self, j, r):
         """
             'Greater than' variables for symmetry breaking.
         """
 
-        return self.vars['gt_{0}_{1}'.format(j, r)]
+        return self.idpool.id('gt_{0}_{1}'.format(j, r))
 
     def teqvar(self, j, r, i):
         """
             Equality-related Tseitin variables for symmetry breaking.
         """
 
-        return self.vars['te_{0}_{1}_{2}'.format(j, r, i)]
+        return self.idpool.id('te_{0}_{1}_{2}'.format(j, r, i))
 
     def tgtvar(self, j, r, i):
         """
             'Greater than'-related Tseitin variables for symmetry breaking.
         """
 
-        return self.vars['tg_{0}_{1}_{2}'.format(j, r, i)]
+        return self.idpool.id('tg_{0}_{1}_{2}'.format(j, r, i))
 
     def get_topid(self):
         """
             Get a top variable id.
         """
 
-        return int(repr(self.idpool)[6:-1]) - 1
+        return self.idpool.top
 
     def optimize(self, enc):
         """
@@ -624,17 +543,18 @@ class SAT(object):
             for r in range(1, self.nof_feats + 1):
                 if model[self.dvar0(j, r) - 1] > 0:
                     id_orig = self.ffmap.opp[r - 1]
-                    name, val = self.data.fvmap.opp[id_orig]
-                    premise.append('\'{0}: {1}\''.format(name, val))
+                    premise.append(id_orig)
                 elif model[self.dvar1(j, r) - 1] > 0:
                     id_orig = self.ffmap.opp[r - 1]
-                    name, val = self.data.fvmap.opp[id_orig]
-                    premise.append('not \'{0}: {1}\''.format(name, val))
+                    premise.append(-id_orig)
+
+            # creating the rule
+            rule = Rule(fvars=premise, label=label, mapping=self.data.fvmap)
 
             if self.options.verb:
-                print('c1 cover:', '{0} => {1}'.format(', '.join(premise), ': '.join(self.data.fvmap.opp[label])))
+                print('c1 cover:', str(rule))
 
-            self.covrs[label].append(premise)
-            self.cost += len(premise)
+            self.covrs[label].append(rule)
+            self.cost += len(rule)
 
         return self.covrs

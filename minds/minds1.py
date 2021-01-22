@@ -4,8 +4,8 @@
 ## minds1.py
 ##
 ##  Created on: Jan 16, 2018
-##      Author: Alexey S. Ignatiev
-##      E-mail: aignatiev@ciencias.ulisboa.pt
+##      Author: Alexey Ignatiev
+##      E-mail: alexey.ignatiev@monash.edu
 ##
 
 #
@@ -14,6 +14,8 @@ from __future__ import print_function
 import collections
 import itertools
 import math
+from minds.rule import Rule
+from minds.satr import SATRules
 import os
 from pysat.card import *
 from pysat.examples.lbx import LBX
@@ -21,7 +23,6 @@ from pysat.examples.rc2 import RC2
 from pysat.formula import CNF, WCNF
 from pysat.solvers import Solver
 import resource
-from sat import SAT
 import socket
 import six
 from six.moves import range
@@ -30,7 +31,7 @@ import sys
 
 #
 #==============================================================================
-class MinDS1(SAT, object):
+class MinDS1Rules(SATRules, object):
     """
         Class implementing the new SAT-based approach.
     """
@@ -40,15 +41,7 @@ class MinDS1(SAT, object):
             Constructor.
         """
 
-        super(MinDS1, self).__init__(data, options)
-
-    def reset_idpool(self):
-        """
-            Reset the pool of variable ids.
-        """
-
-        self.idpool = itertools.count(start=1)
-        self.vars = collections.defaultdict(lambda: next(self.idpool))
+        super(MinDS1Rules, self).__init__(data, options)
 
     def compute(self):
         """
@@ -63,9 +56,9 @@ class MinDS1(SAT, object):
 
         # depending on this option, we compute either one class or all of them
         if self.options.to_compute == 'best':
-            self.labels = list(self.samps.keys())
+            self.labels = sorted(self.samps.keys())
         elif self.options.to_compute == 'all':
-            self.labels = list(self.samps.keys())
+            self.labels = sorted(self.samps.keys())
         else:
             to_compute = self.options.to_compute.split(',')
             self.labels = [self.data.fvmap.dir[self.data.names[-1], c] for c in to_compute]
@@ -231,9 +224,26 @@ class MinDS1(SAT, object):
             self.add_bsymm(enc)
 
         # constraint 15
-        for label in self.labels:
-            for q in self.samps[label]:
-                enc.append([self.crvar(j, q + 1) for j in range(1, self.nof_terms + 1)])
+        if self.options.accuracy == 100.0:
+            for label in self.labels:
+                for q in self.samps[label]:
+                    enc.append([self.crvar(j, q + 1) for j in range(1, self.nof_terms + 1)])
+        else:
+            allcv = []
+            for label in self.labels:
+                for q in self.samps[label]:
+                    cv = self.cvvar(q + 1)
+                    enc.append([-cv] + [self.crvar(j, q + 1) for j in range(1, self.nof_terms + 1)])
+
+                    for j in range(1, self.nof_terms + 1):
+                        enc.append([-self.crvar(j, q + 1), cv])
+
+                    allcv.append(cv)
+
+            cnum = int(math.ceil(self.options.accuracy * len(allcv) / 100.0))
+            al = CardEnc.atleast(allcv, bound=cnum, top_id=enc.nv, encoding=self.options.enc)
+            if al:
+                enc.extend(al.clauses)
 
         # at most one value can be chosen for a feature
         for feats in six.itervalues(self.ffmap.dir):
@@ -353,14 +363,14 @@ class MinDS1(SAT, object):
             True iff literal on feature r is to be skipped for rule j.
         """
 
-        return self.vars['s_{0}_{1}'.format(j, r)]
+        return self.idpool.id('s_{0}_{1}'.format(j, r))
 
     def lvar(self, j, r):
         """
             Literal on feature r for rule j (if the feature is not skipped).
         """
 
-        return self.vars['l_{0}_{1}'.format(j, r)]
+        return self.idpool.id('l_{0}_{1}'.format(j, r))
 
     def cvar(self, j, z):
         """
@@ -368,79 +378,79 @@ class MinDS1(SAT, object):
         """
 
         if self.nof_labls == 2:
-            return (1 if z == 1 else -1) * self.vars['c_{0}_1'.format(j)]
+            return (1 if z == 1 else -1) * self.idpool.id('c_{0}_1'.format(j))
 
-        return self.vars['c_{0}_{1}'.format(j, z)]
+        return self.idpool.id('c_{0}_{1}'.format(j, z))
 
     def dvar0(self, j, r):
         """
             True iff rule j discriminates feature r on value 0.
         """
 
-        return self.vars['d0_{0}_{1}'.format(j, r)]
+        return self.idpool.id('d0_{0}_{1}'.format(j, r))
 
     def dvar1(self, j, r):
         """
             True iff rule j discriminates feature r on value 1.
         """
 
-        return self.vars['d1_{0}_{1}'.format(j, r)]
+        return self.idpool.id('d1_{0}_{1}'.format(j, r))
 
     def crvar(self, j, q):
         """
             True iff (used) rule j covers sample q.
         """
 
-        return self.vars['cr_{0}_{1}'.format(j, q)]
+        return self.idpool.id('cr_{0}_{1}'.format(j, q))
 
     def tlvar(self, i, j, k):
         """
             Tseitin variable encoding equality of LHS of constraint 16.
         """
 
-        return self.vars['tl_{0}_{1}_{2}'.format(i, j, k)]
+        return self.idpool.id('tl_{0}_{1}_{2}'.format(i, j, k))
 
     def trvar0(self, i, j, r):
         """
             Tseitin variable encoding equality of the RHS of constraint 16.
         """
 
-        return self.vars['tr0_{0}_{1}_{2}'.format(i, j, r)]
+        return self.idpool.id('tr0_{0}_{1}_{2}'.format(i, j, r))
 
     def trvar1(self, i, j, r):
         """
             Tseitin variable encoding the RHS of constraint 16.
         """
 
-        return self.vars['tr1_{0}_{1}_{2}'.format(i, j, r)]
+        return self.idpool.id('tr1_{0}_{1}_{2}'.format(i, j, r))
 
     def eqvar(self, j, r):
         """
             Equality variables for symmetry breaking.
         """
 
-        return self.vars['eq_{0}_{1}'.format(j, r)]
+        return self.idpool.id('eq_{0}_{1}'.format(j, r))
 
     def gtvar(self, j, r):
         """
             'Greater than' variables for symmetry breaking.
         """
 
-        return self.vars['gt_{0}_{1}'.format(j, r)]
+        return self.idpool.id('gt_{0}_{1}'.format(j, r))
 
     def teqvar(self, j, r, i):
         """
             Equality-related Tseitin variables for symmetry breaking.
         """
 
-        return self.vars['te_{0}_{1}_{2}'.format(j, r, i)]
+        return self.idpool.id('te_{0}_{1}_{2}'.format(j, r, i))
 
     def tgtvar(self, j, r, i):
         """
             'Greater than'-related Tseitin variables for symmetry breaking.
         """
 
-        return self.vars['tg_{0}_{1}_{2}'.format(j, r, i)]
+        return self.idpool.id('tg_{0}_{1}_{2}'.format(j, r, i))
 
     def optimize(self, enc):
         """
@@ -486,7 +496,7 @@ class MinDS1(SAT, object):
             hs = list(filter(lambda v: v > 0 and v in all_vars, hitman.compute()))
             hitman.delete()
 
-        return [-v for v in all_vars.difference(set(hs))]
+        return sorted([-v for v in all_vars.difference(set(hs))])
 
     def extract_cover(self, model):
         """
@@ -498,12 +508,10 @@ class MinDS1(SAT, object):
             for r in range(1, self.nof_feats + 1):
                 if model[self.dvar0(j, r) - 1] > 0:
                     id_orig = self.ffmap.opp[r - 1]
-                    name, val = self.data.fvmap.opp[id_orig]
-                    premise.append('\'{0}: {1}\''.format(name, val))
+                    premise.append(id_orig)
                 elif model[self.dvar1(j, r) - 1] > 0:
                     id_orig = self.ffmap.opp[r - 1]
-                    name, val = self.data.fvmap.opp[id_orig]
-                    premise.append('not \'{0}: {1}\''.format(name, val))
+                    premise.append(-id_orig)
 
             if self.nof_labls == 2:
                 label = self.labels[0 if model[self.cvar(j, 1) - 1] > 0 else 1]
@@ -515,10 +523,13 @@ class MinDS1(SAT, object):
                 else:
                     assert False, 'No class label found in the model'
 
-            if self.options.verb:
-                print('c1 cover:', '{0} => {1}'.format(', '.join(premise), ': '.join(self.data.fvmap.opp[label])))
+            # creating the rule
+            rule = Rule(fvars=premise, label=label, mapping=self.data.fvmap)
 
-            self.covrs[label].append(premise)
-            self.cost += len(premise)
+            if self.options.verb:
+                print('c1 cover:', str(rule))
+
+            self.covrs[label].append(rule)
+            self.cost += len(rule)
 
         return self.covrs

@@ -4,12 +4,14 @@
 ## mp92.py
 ##
 ##  Created on: Dec 20, 2017
-##      Author: Filipe Pereira, Alexey S. Ignatiev
-##      E-mail: filipe.pereira.1995@gmail.com, aignatiev@ciencias.ulisboa.pt
+##      Author: Filipe Pereira, Alexey Ignatiev
+##      E-mail: filipe.pereira.1995@gmail.com, alexey.ignatiev@monash.edu
 ##
 
 #
 #==============================================================================
+from minds.rule import Rule
+from minds.satr import SATRules
 import os
 from pysat.card import *
 from pysat.examples.lbx import LBX
@@ -17,14 +19,13 @@ from pysat.examples.rc2 import RC2
 from pysat.formula import CNF, WCNF
 from pysat.solvers import Solver
 import resource
-from sat import SAT
 import six
 from six.moves import range
 import sys
 
 #
 #==============================================================================
-class MP92(SAT, object):
+class MP92Rules(SATRules, object):
     """
         Class implementing the approach from the MP'92 paper.
     """
@@ -34,7 +35,7 @@ class MP92(SAT, object):
             Constructor.
         """
 
-        super(MP92, self).__init__(data, options)
+        super(MP92Rules, self).__init__(data, options)
 
     def encode(self, label, nof_terms):
         """
@@ -57,7 +58,7 @@ class MP92(SAT, object):
         else:  # distinguish the classes under question only
             other_labels = set(self.labels)
         other_labels.remove(label)
-        other_labels = list(other_labels)
+        other_labels = sorted(other_labels)
         for j in range(1, self.nof_terms + 1):
             for lb in other_labels:
                 for q in self.samps[lb]:
@@ -92,8 +93,21 @@ class MP92(SAT, object):
             self.add_bsymm(enc)
 
         # constraint 5
-        for q in self.samps[label]:
-            enc.append([self.crvar(j, q + 1) for j in range(1, self.nof_terms + 1)])
+        if self.options.accuracy == 100.0:
+            for q in self.samps[label]:
+                enc.append([self.crvar(j, q + 1) for j in range(1, self.nof_terms + 1)])
+        else:
+            for q in self.samps[label]:
+                cv = self.cvvar(q + 1)
+                enc.append([-cv] + [self.crvar(j, q + 1) for j in range(1, self.nof_terms + 1)])
+
+                for j in range(1, self.nof_terms + 1):
+                    enc.append([-self.crvar(j, q + 1), cv])
+
+            cnum = int(self.options.accuracy * len(self.samps[label]) / 100.0)
+            al = CardEnc.atleast([self.cvvar(q + 1) for q in self.samps[label]], bound=cnum, top_id=enc.nv, encoding=self.options.enc)
+            if al:
+                enc.extend(al.clauses)
 
         # at most one value can be chosen for a feature
         for feats in six.itervalues(self.ffmap.dir):
@@ -198,14 +212,14 @@ class MP92(SAT, object):
             True iff literal x_r is not included in rule j.
         """
 
-        return self.vars['p_{0}_{1}'.format(j, r)]
+        return self.idpool.id('p_{0}_{1}'.format(j, r))
 
     def nvar(self, j, r):
         """
             True iff literal -x_r is not included in rule j.
         """
 
-        return self.vars['n_{0}_{1}'.format(j, r)]
+        return self.idpool.id('n_{0}_{1}'.format(j, r))
 
     def slvar(self, j, r, q, shift=0):
         """
@@ -213,51 +227,51 @@ class MP92(SAT, object):
         """
 
         if self.data.samps[q][r - 1 - shift] > 0:
-            return self.vars['n_{0}_{1}'.format(j, r)]
+            return self.idpool.id('n_{0}_{1}'.format(j, r))
         else:
-            return self.vars['p_{0}_{1}'.format(j, r)]
+            return self.idpool.id('p_{0}_{1}'.format(j, r))
 
     def svar(self, j, r):
         """
             True iff literal neither value for feature r is included in rule j.
         """
 
-        return self.vars['s_{0}_{1}'.format(j, r)]
+        return self.idpool.id('s_{0}_{1}'.format(j, r))
 
     def crvar(self, j, q):
         """
             True iff (used) rule j covers sample q.
         """
 
-        return self.vars['cr_{0}_{1}'.format(j, q)]
+        return self.idpool.id('cr_{0}_{1}'.format(j, q))
 
     def eqvar(self, j, r):
         """
             Equality variables for symmetry breaking.
         """
 
-        return self.vars['eq_{0}_{1}'.format(j, r)]
+        return self.idpool.id('eq_{0}_{1}'.format(j, r))
 
     def gtvar(self, j, r):
         """
             'Greater than' variables for symmetry breaking.
         """
 
-        return self.vars['gt_{0}_{1}'.format(j, r)]
+        return self.idpool.id('gt_{0}_{1}'.format(j, r))
 
     def teqvar(self, j, r, i):
         """
             Equality-related Tseitin variables for symmetry breaking.
         """
 
-        return self.vars['te_{0}_{1}_{2}'.format(j, r, i)]
+        return self.idpool.id('te_{0}_{1}_{2}'.format(j, r, i))
 
     def tgtvar(self, j, r, i):
         """
             'Greater than'-related Tseitin variables for symmetry breaking.
         """
 
-        return self.vars['tg_{0}_{1}_{2}'.format(j, r, i)]
+        return self.idpool.id('tg_{0}_{1}_{2}'.format(j, r, i))
 
     def optimize(self, enc):
         """
@@ -323,17 +337,18 @@ class MP92(SAT, object):
             for r in range(1, self.nof_feats + 1):
                 if model[self.pvar(j, r) - 1] < 0:
                     id_orig = self.ffmap.opp[r - 1]
-                    name, val = self.data.fvmap.opp[id_orig]
-                    premise.append('\'{0}: {1}\''.format(name, val))
+                    premise.append(id_orig)
                 elif model[self.nvar(j, r) - 1] < 0:
                     id_orig = self.ffmap.opp[r - 1]
-                    name, val = self.data.fvmap.opp[id_orig]
-                    premise.append('not \'{0}: {1}\''.format(name, val))
+                    premise.append(-id_orig)
+
+            # creating the rule
+            rule = Rule(fvars=premise, label=label, mapping=self.data.fvmap)
 
             if self.options.verb:
-                print('c1 cover: {0} => {1}'.format(', '.join(premise), ': '.join(self.data.fvmap.opp[label])))
+                print('c1 cover:', str(rule))
 
-            self.covrs[label].append(premise)
-            self.cost += len(premise)
+            self.covrs[label].append(rule)
+            self.cost += len(rule)
 
         return self.covrs
